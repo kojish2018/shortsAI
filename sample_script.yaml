@@ -1,0 +1,96 @@
+# サンプルスクリプト（1分動画用）
+# このファイルをコピーして編集してください
+
+video:
+  title: "東大卒社長の父が明かした成功の秘密"
+  description: "賢い人ほど実践している意外な習慣とは？"
+  duration: 60  # 秒
+
+scenes:
+  # シーン1: タイトル・導入部 (0-20秒)
+  - id: 1
+    start_time: 0
+    duration: 20
+    background:
+      type: "generated"
+      prompt: "professional modern office with large windows, clean minimalist design, natural lighting"
+    text:
+      - content: "東大卒社長の父"
+        type: "title"
+        animation: "typewriter"
+        start_frame: 30
+        duration: 60
+      - content: "が明かした"
+        type: "subtitle"  
+        animation: "fade_in"
+        start_frame: 120
+        duration: 90
+      - content: "実は賢い人ほど\\nバカなフリをする理由"
+        type: "main"
+        animation: "typewriter"
+        start_frame: 240
+        duration: 150
+        background_box: true
+    voice:
+      text: "とうだいそつしゃちょうのちちが、あかした。じつは、かしこいひとほど、ばかなふりをするりゆう"
+      start_time: 1.0
+
+  # シーン2: ストーリー展開部 (20-45秒)  
+  - id: 2
+    start_time: 20
+    duration: 25
+    background:
+      type: "generated"
+      prompt: "young businessman working at modern desk with laptop, focused and determined expression"
+    text:
+      - content: "成功する人の共通点"
+        type: "title"
+        animation: "fade_in"
+        start_frame: 30
+        duration: 120
+        color: "#FF0000"
+      - content: "それは..."
+        type: "main"
+        animation: "typewriter"
+        start_frame: 180
+        duration: 60
+      - content: "周りから過小評価されること\\nを恐れないこと"
+        type: "main"
+        animation: "fade_in" 
+        start_frame: 270
+        duration: 180
+        background_box: true
+    voice:
+      text: "せいこうするひとのきょうつうてんは、まわりから、かしょうひょうかされることを、おそれないことです"
+      start_time: 21.0
+
+  # シーン3: 結論・メッセージ部 (45-60秒)
+  - id: 3
+    start_time: 45  
+    duration: 15
+    background:
+      type: "generated"
+      prompt: "cozy home library with books, warm lighting, peaceful studying atmosphere"
+    text:
+      - content: "真の知性とは"
+        type: "title"
+        animation: "typewriter"
+        start_frame: 30
+        duration: 90
+      - content: "見せびらかすものではなく\\n静かに行動で示すもの"
+        type: "main"
+        animation: "fade_in"
+        start_frame: 150
+        duration: 200
+        background_box: true
+        color: "#FF0000"
+    voice:
+      text: "しんのちせいとは、みせびらかすものではなく、しずかにこうどうでしめすものなのです"
+      start_time: 46.0
+
+# 固定ナレーション（全シーン共通で下部に表示）
+narration:
+  - content: "賢い人ほどバカなフリをする理由"
+    position: "bottom"
+    animation: "static"
+    color: "#000000"

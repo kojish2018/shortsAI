@@ -1,0 +1,29 @@
+# ShortsAI MVP Dependencies
+
+# Core video processing
+moviepy==1.0.3
+
+# Image processing
+Pillow==10.0.0
+opencv-python==4.8.0.76
+
+# Configuration management
+PyYAML==6.0.1
+
+# API requests
+requests==2.31.0
+
+# Audio processing
+pydub==0.25.1
+
+# Math and utilities
+numpy==1.24.3
+
+# YouTube API
+google-auth==2.22.0
+google-auth-oauthlib==1.0.0
+google-auth-httplib2==0.1.0
+google-api-python-client==2.95.0
+
+# Optional: Progress bars
+tqdm==4.65.0

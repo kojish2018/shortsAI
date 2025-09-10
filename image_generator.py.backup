@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""
+;����� - Flux.1 Dev APIq
+fal.ai~_oReplicate�(Wf1080x1920px&�;ϒ
+"""
+
+import requests
+import logging
+import time
+from pathlib import Path
+from typing import Dict, Any, Optional
+import base64
+from io import BytesIO
+
+
+class ImageGenerator:
+    """Flux.1 Dev API�(W_;���"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        
+        Args:
+            config: -���apis.flux-��+�	
+        """
+        self.config = config['apis']['flux']
+        self.provider = self.config.get('provider', 'fal.ai')
+        self.api_key = self.config.get('api_key', '')
+        self.model = self.config.get('model', 'flux-dev')
+        self.steps = self.config.get('steps', 35)
+        self.guidance_scale = self.config.get('guidance_scale', 3.5)
+        
+        if not self.api_key:
+            logging.warning("Flux.1 Dev API��L-�U�fD~[�")
+        
+        logging.info(f";� - Provider: {self.provider}, Model: {self.model}")
+    
+    def generate_image(self, prompt: str, output_path: str) -> bool:
+        """
+        ƭ�������K�;ϒ
+        Args:
+            prompt: ;������
+            output_path: ��ա��ѹ
+        Returns:
+            �BTrue1WBFalse
+        """
+        if not self.api_key:
+            logging.error("API��L-�U�fDjD_�;������W~Y")
+            return self._create_placeholder_image(output_path, prompt)
+        
+        try:
+            if self.provider == 'fal.ai':
+                return self._generate_with_fal(prompt, output_path)
+            elif self.provider == 'replicate':
+                return self._generate_with_replicate(prompt, output_path)
+            else:
+                logging.error(f"*��n��Ф�: {self.provider}")
+                return self._create_placeholder_image(output_path, prompt)
+                
+        except Exception as e:
+            logging.error(f";����: {e}")
+            return self._create_placeholder_image(output_path, prompt)
+    
+    def _generate_with_fal(self, prompt: str, output_path: str) -> bool:
+        """fal.ai�(Wf;�"""
+        url = "https://fal.run/fal-ai/flux/dev"
+        
+        # &������;(n������5
+        enhanced_prompt = f"{prompt}, vertical orientation, 9:16 aspect ratio, high quality, professional"
+        
+        headers = {
+            "Authorization": f"Key {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "prompt": enhanced_prompt,
+            "image_size": "portrait_9_16",  # 1080x1920�S
+            "num_inference_steps": self.steps,
+            "guidance_scale": self.guidance_scale,
+            "enable_safety_checker": True
+        }
+        
+        logging.info(f"fal.aig;�-: {prompt[:50]}...")
+        response = requests.post(url, json=data, headers=headers, timeout=120)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if 'images' in result and result['images']:
+                image_url = result['images'][0]['url']
+                return self._download_image(image_url, output_path)
+            else:
+                logging.error("API���k;�URLLB�~[�")
+                return False
+        else:
+            logging.error(f"fal.ai API ���: {response.status_code} - {response.text}")
+            return False
+    
+    def _generate_with_replicate(self, prompt: str, output_path: str) -> bool:
+        """Replicate�(Wf;�"""
+        url = "https://api.replicate.com/v1/predictions"
+        
+        # &������;(n������5
+        enhanced_prompt = f"{prompt}, vertical orientation, 9:16 aspect ratio, high quality, professional"
+        
+        headers = {
+            "Authorization": f"Token {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "version": "black-forest-labs/flux-schnell",  # ~_oijFlux.1 Dev�����
+            "input": {
+                "prompt": enhanced_prompt,
+                "width": 1080,
+                "height": 1920,
+                "num_inference_steps": self.steps,
+                "guidance_scale": self.guidance_scale
+            }
+        }
+        
+        logging.info(f"Replicateg;�-: {prompt[:50]}...")
+        response = requests.post(url, json=data, headers=headers, timeout=10)
+        
+        if response.status_code == 201:
+            prediction = response.json()
+            prediction_url = prediction['urls']['get']
+            
+            # ���~g�_
+            while True:
+                time.sleep(2)
+                result_response = requests.get(prediction_url, headers=headers)
+                result = result_response.json()
+                
+                if result['status'] == 'succeeded':
+                    if result['output'] and len(result['output']) > 0:
+                        image_url = result['output'][0]
+                        return self._download_image(image_url, output_path)
+                    else:
+                        logging.error("Replicate APIK�;�URLL֗gM~[�")
+                        return False
+                elif result['status'] == 'failed':
+                    logging.error(f"Replicate����: {result.get('error', 'Unknown error')}")
+                    return False
+                elif result['status'] in ['starting', 'processing']:
+                    logging.info("�-...")
+                    continue
+                else:
+                    logging.error(f"�WjD�����: {result['status']}")
+                    return False
+        else:
+            logging.error(f"Replicate API ���: {response.status_code} - {response.text}")
+            return False
+    
+    def _download_image(self, image_url: str, output_path: str) -> bool:
+        """;�URLK�;ϒ������"""
+        try:
+            response = requests.get(image_url, timeout=60)
+            response.raise_for_status()
+            
+            # ��ǣ���\
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            
+            logging.info(f";ϒ������W~W_: {output_path}")
+            return True
+            
+        except Exception as e:
+            logging.error(f";������ɨ��: {e}")
+            return False
+    
+    def _create_placeholder_image(self, output_path: str, prompt: str) -> bool:
+        """��������;ϒ\API(�B	"""
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            
+            # 1080x1920n��o;ϒ\
+            img = Image.new('RGB', (1080, 1920), color='black')
+            draw = ImageDraw.Draw(img)
+            
+            # ƭ���;
+            try:
+                # ����թ�ȒfL
+                font = ImageFont.truetype('/System/Library/Fonts/Arial.ttf', 48)
+            except:
+                font = ImageFont.load_default()
+            
+            # �����ƭ�Ȓ�;
+            text_lines = [
+                "PLACEHOLDER IMAGE",
+                f"Prompt: {prompt[:30]}...",
+                "API key not configured"
+            ]
+            
+            y_offset = 800
+            for line in text_lines:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                text_width = bbox[2] - bbox[0]
+                x = (1080 - text_width) // 2
+                draw.text((x, y_offset), line, fill='white', font=font)
+                y_offset += 80
+            
+            # ��ǣ���\
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            img.save(output_path)
+            logging.info(f"��������;ϒ\W~W_: {output_path}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"��������;�\���: {e}")
+            return False
+    
+    def generate_default_image_prompt(self, text: str) -> str:
+        """ƭ�ȅ�K�ij;�����Ȓ"""
+        # ����j��������;������
+        keywords = {
+            '>w': 'professional businessman in modern office',
+            '�': 'successful person, luxury lifestyle',
+            '知性': 'intelligent person reading, library setting',
+            'f�': 'person studying, books, peaceful environment',
+            'Ջ': 'person working at desk, professional setting',
+            '�թ��': 'modern professional background, clean minimal design'
+        }
+        
+        for keyword, prompt_template in keywords.items():
+            if keyword in text:
+                return prompt_template
+        
+        return 'modern professional background, clean minimal design'
