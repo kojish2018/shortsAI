@@ -13,7 +13,8 @@ import numpy as np
 try:
     from moviepy.editor import (
         VideoFileClip, ImageClip, AudioFileClip, TextClip, 
-        CompositeVideoClip, CompositeAudioClip, concatenate_videoclips
+        CompositeVideoClip, CompositeAudioClip, concatenate_videoclips,
+        VideoClip, ImageSequenceClip
     )
     MOVIEPY_AVAILABLE = True
 except ImportError:
@@ -138,7 +139,7 @@ class VideoGenerator:
             return False
     
     def _create_page_video(self, page_data: Dict[str, Any], start_time: float) -> Optional[CompositeVideoClip]:
-        """単一ページの動画クリップを作成"""
+        """単一ページの動画クリップを作成（ref-imagesレイアウトに基づく）"""
         try:
             duration = page_data.get('duration', 3.0)
             background_path = page_data.get('background_path')
@@ -146,19 +147,20 @@ class VideoGenerator:
             
             clips = []
             
-            # 背景画像クリップ
-            if background_path and Path(background_path).exists():
-                bg_clip = self._create_background_clip(background_path, duration)
-                if bg_clip:
-                    clips.append(bg_clip)
-            else:
-                # デフォルトの背景を作成
-                bg_clip = self._create_default_background(duration)
-                clips.append(bg_clip)
+            # 常に白い背景を作成
+            white_bg = self._create_default_background(duration)
+            clips.append(white_bg)
             
-            # テキストクリップ
+            # 生成された画像をページ番号に応じて配置
+            if background_path and Path(background_path).exists():
+                page_number = page_data.get('page_number', 1)
+                generated_img_clip = self._create_page_specific_image_clip(background_path, duration, page_number)
+                if generated_img_clip:
+                    clips.append(generated_img_clip)
+            
+            # テキストクリップ（画像の上下に配置）
             if text:
-                text_clips = self._create_text_clips(text, duration, page_data)
+                text_clips = self._create_positioned_text_clips(text, duration, page_data)
                 clips.extend(text_clips)
             
             if not clips:
@@ -198,10 +200,10 @@ class VideoGenerator:
             return None
     
     def _create_default_background(self, duration: float) -> ImageClip:
-        """デフォルトの背景（黒）クリップを作成"""
-        # NumPyで黒い画像を作成
-        black_image = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        return ImageClip(black_image, duration=duration)
+        """デフォルトの背景（白）クリップを作成"""
+        # NumPyで白い画像を作成
+        white_image = np.full((self.height, self.width, 3), 255, dtype=np.uint8)
+        return ImageClip(white_image, duration=duration)
     
     def _create_text_clips(self, text: str, duration: float, page_data: Dict[str, Any]) -> List[TextClip]:
         """テキストクリップのリストを作成"""
@@ -279,7 +281,7 @@ class VideoGenerator:
             logging.error(f"タイプライター効果エラー: {e}")
             return text_clip.set_duration(duration)
     
-    def _apply_fade_in_effect(self, text_clip: TextClip, duration: float) -> Optional[TextClip]:
+    def _apply_fade_in_effect(self, text_clip: TextClip, duration: float) -> Optional[VideoClip]:
         """フェードイン効果の適用"""
         try:
             fade_time = min(self.fade_duration, duration / 3)
@@ -287,6 +289,92 @@ class VideoGenerator:
         except Exception as e:
             logging.error(f"フェードイン効果エラー: {e}")
             return text_clip.set_duration(duration)
+    
+    def _create_page_specific_image_clip(self, image_path: str, duration: float, page_number: int) -> Optional[ImageClip]:
+        """ページ番号に応じて画像クリップを作成"""
+        try:
+            # 画像を読み込み
+            img_clip = ImageClip(image_path, duration=duration)
+            
+            if page_number == 1:
+                # 1ページ目：下に小さく配置（0.5倍）
+                target_size = int(self.width * 0.5)
+                img_clip = img_clip.resize((target_size, target_size))
+                # 下側に配置（下から20%の位置）
+                position = ('center', int(self.height * 0.8 - target_size / 2))
+                img_clip = img_clip.set_position(position)
+            else:
+                # 2ページ目以降：上に横いっぱい（正方形維持）
+                target_size = int(self.width * 0.9)  # 横いっぱい（90%）
+                img_clip = img_clip.resize((target_size, target_size))
+                # 上側に配置（上から20%の位置）
+                position = ('center', int(self.height * 0.2))
+                img_clip = img_clip.set_position(position)
+            
+            return img_clip
+            
+        except Exception as e:
+            logging.error(f"ページ固有画像クリップ作成エラー: {e}")
+            return None
+    
+    def _create_positioned_text_clips(self, text: str, duration: float, page_data: Dict[str, Any]) -> List[TextClip]:
+        """テキストクリップをページ番号に応じて配置"""
+        clips = []
+        
+        try:
+            # テキスト設定の取得
+            font_size = page_data.get('font_size', self.default_font_size)
+            # 黒文字に変更（白背景のため）
+            color = '#000000'
+            animation_type = page_data.get('animation', 'fade_in')
+            page_number = page_data.get('page_number', 1)
+            
+            text_clip = TextClip(
+                text,
+                fontsize=font_size,
+                color=color,
+                font=self._get_font_path(),
+                method='caption',
+                size=(int(self.width * 0.9), None),  # 画面幅90%を使用
+                align='center'
+            )
+            
+            # ページ番号に応じてテキスト位置を調整
+            if page_number == 1:
+                # 1ページ目：画像が下にあるので、テキストは上に配置
+                text_y_position = int(self.height * 0.15)  # 上から15%の位置
+            else:
+                # 2ページ目以降：画像が上にあるので、テキストは下に配置
+                text_y_position = int(self.height * 0.75)  # 上から75%の位置
+            
+            text_clip = text_clip.set_position(('center', text_y_position))
+            
+            # アニメーション効果の適用
+            if animation_type == 'fade_in':
+                animated_clip = self._apply_fade_in_effect(text_clip, duration)
+            else:
+                animated_clip = text_clip.set_duration(duration)
+            
+            if animated_clip:
+                clips.append(animated_clip)
+            
+        except Exception as e:
+            logging.error(f"位置付きテキストクリップ作成エラー: {e}")
+            # エラー時は簡単なテキストクリップを作成
+            try:
+                page_number = page_data.get('page_number', 1)
+                fallback_y = int(self.height * 0.15) if page_number == 1 else int(self.height * 0.75)
+                simple_clip = TextClip(
+                    text,
+                    fontsize=32,
+                    color='black',
+                    method='caption'
+                ).set_duration(duration).set_position(('center', fallback_y))
+                clips.append(simple_clip)
+            except:
+                pass  # それでも失敗する場合はスキップ
+        
+        return clips
     
     def _create_placeholder_video(self, output_path: str) -> bool:
         """プレースホルダー動画を作成（MoviePy不使用時）"""
@@ -305,13 +393,14 @@ class VideoGenerator:
             logging.error(f"プレースホルダー動画作成エラー: {e}")
             return False
     
-    def create_page_data(self, text: str, image_path: str, audio_path: str, duration: float) -> Dict[str, Any]:
+    def create_page_data(self, text: str, image_path: str, audio_path: str, duration: float, page_number: int = 1) -> Dict[str, Any]:
         """ページデータの作成"""
         return {
             'text': text,
             'background_path': image_path,
             'audio_path': audio_path,
             'duration': duration,
+            'page_number': page_number,
             'font_size': self.default_font_size,
             'color': self.default_color,
             'animation': 'fade_in'
