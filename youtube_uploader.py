@@ -40,8 +40,8 @@ class YouTubeUploader:
         self.default_privacy = self.config.get('default_privacy', 'private')
         self.default_category = self.config.get('default_category', '22')  # People & Blogs
         
-        self.credentials_file = 'credentials.json'  # OAuth 2.0のクライアント情報ファイル
-        self.token_file = 'token.json'  # アクセストークン保存ファイル
+        self.credentials_file = 'credentials/youtube_credentials.json'  # OAuth 2.0のクライアント情報ファイル
+        self.token_file = 'credentials/youtube_token.json'  # アクセストークン保存ファイル
         
         self.youtube_service = None
         

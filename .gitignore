@@ -55,8 +55,7 @@ logs/
 *.log
 
 # API keys and credentials
-credentials.json
-token.json
+credentials/
 config.yaml
 .env
 
