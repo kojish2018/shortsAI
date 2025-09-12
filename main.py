@@ -4,7 +4,7 @@ ShortsAI MVP - YouTube Shorts自動生成ツール
 シンプルなテキストファイルから縦型ショート動画を完全自動生成
 
 使用方法:
-    python main.py script.txt [--upload] [--config config.yaml]
+    python main.py script.txt [--upload] [--schedule "YYYY-MM-DD HH:MM"] [--no-shorts] [--config config.yaml]
 """
 
 import argparse
@@ -101,6 +101,8 @@ def main():
     parser.add_argument('script', help='入力スクリプトファイル (.txt)')
     parser.add_argument('--config', default='config.yaml', help='設定ファイル (デフォルト: config.yaml)')
     parser.add_argument('--upload', action='store_true', help='生成後にYouTubeにアップロード')
+    parser.add_argument('--schedule', help='スケジュール投稿日時 (例: "2024-12-25 08:00")')
+    parser.add_argument('--no-shorts', action='store_true', help='YouTube Shortsではなく通常動画としてアップロード')
     parser.add_argument('--output', help='出力ディレクトリ (config.yamlの設定を上書き)')
     parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
 
@@ -207,17 +209,52 @@ def main():
             # 4. YouTube アップロード（オプション）
             if youtube_uploader and video_path.exists():
                 script_title = Path(args.script).stem
-                title = f"AI Generated Short: {script_title}"
-                description = f"AI生成ショート動画 ({len(pages)}ページ, {total_duration:.1f}秒)"
-
-                logging.info("YouTube アップロード中...")
-                video_id = youtube_uploader.upload_video(str(video_path), title, description)
-
-                if video_id:
-                    video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    logging.info(f"YouTubeアップロード完了: {video_url}")
+                
+                # Shortsか通常動画かでタイトルを変更
+                is_shorts = not args.no_shorts  # --no-shortsフラグがない場合はShorts
+                if is_shorts:
+                    title = f"AI Generated Short: {script_title}"
+                    description = f"AI生成ショート動画 ({len(pages)}ページ, {total_duration:.1f}秒)\n\n自動生成されたYouTube Shorts動画です。"
                 else:
-                    logging.warning("YouTubeアップロードに失敗しました")
+                    title = f"AI Generated Video: {script_title}"
+                    description = f"AI生成動画 ({len(pages)}ページ, {total_duration:.1f}秒)\n\n自動生成された動画です。"
+                
+                # スケジュール投稿日時の処理
+                schedule_datetime = None
+                if args.schedule:
+                    schedule_datetime = youtube_uploader.parse_schedule_datetime(args.schedule)
+                    if not schedule_datetime:
+                        logging.error("スケジュール日時のパースに失敗しました。アップロードをスキップします。")
+                        youtube_uploader = None
+                    elif not youtube_uploader.validate_schedule_datetime(schedule_datetime):
+                        logging.error("スケジュール日時が無効です。アップロードをスキップします。")
+                        youtube_uploader = None
+                
+                if youtube_uploader:
+                    upload_type = "スケジュール投稿" if schedule_datetime else "即座投稿"
+                    video_type = "YouTube Shorts" if is_shorts else "通常動画"
+                    logging.info(f"{video_type} {upload_type}中...")
+                    
+                    if schedule_datetime:
+                        logging.info(f"投稿予定日時: {args.schedule}")
+                    
+                    video_id = youtube_uploader.upload_video(
+                        str(video_path), 
+                        title, 
+                        description,
+                        schedule_datetime=schedule_datetime,
+                        is_shorts=is_shorts
+                    )
+
+                    if video_id:
+                        video_url = f"https://www.youtube.com/watch?v={video_id}"
+                        if schedule_datetime:
+                            logging.info(f"YouTubeスケジュール投稿完了: {video_url}")
+                            logging.info(f"投稿予定: {args.schedule}")
+                        else:
+                            logging.info(f"YouTubeアップロード完了: {video_url}")
+                    else:
+                        logging.warning("YouTubeアップロードに失敗しました")
 
             logging.info("=== 処理完了 ===")
         else:

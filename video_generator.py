@@ -52,7 +52,7 @@ class VideoGenerator:
         
         # テキスト設定
         self.font_family = self.text_config.get('font_family', 'Arial')
-        self.default_font_size = self.text_config.get('default_size', 32)
+        self.default_font_size = self.text_config.get('default_size', 48)
         self.default_color = self.text_config.get('colors', {}).get('default', '#000000')
         self.highlight_color = self.text_config.get('colors', {}).get('highlight', '#FF0000')
         
@@ -257,38 +257,60 @@ class VideoGenerator:
         return clips
     
     def _get_font_path(self) -> str:
-        """利用可能なフォントパスを取得"""
-        # macOSの標準フォント
-        font_paths = [
-            '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
-            '/System/Library/Fonts/Arial.ttf',
-            '/System/Library/Fonts/Helvetica.ttc'
+        """利用可能なフォントパスを取得（ExtraBold優先、同梱フォントを優先）"""
+        # 同梱フォントのパス
+        bundled_extrabold_font_path = Path(__file__).parent / "fonts" / "NotoSansJP-ExtraBold.ttf" # または .otf
+        if bundled_extrabold_font_path.exists():
+            return str(bundled_extrabold_font_path)
+
+        bundled_bold_font_path = Path(__file__).parent / "fonts" / "NotoSansJP-Bold.ttf" # または .otf
+        if bundled_bold_font_path.exists():
+            return str(bundled_bold_font_path)
+
+        # macOSのシステムフォント
+        system_font_paths = [
+            '/System/Library/Fonts/ヒラギノ角ゴシック W9.ttc', # ヒラギノ角ゴシックのExtraBold相当
+            '/System/Library/Fonts/NotoSansJP-ExtraBold.otf', # Noto Sans JP ExtraBold (一般的なパス)
+            '/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc', # ヒラギノ角ゴシックの太字
+            '/System/Library/Fonts/NotoSansJP-Bold.otf', # Noto Sans JP Bold (一般的なパス)
+            '/System/Library/Fonts/Arial Black.ttf', # Arial Black (ExtraBold相当)
+            '/System/Library/Fonts/Arial Bold.ttf', # Arial Bold
+            '/System/Library/Fonts/Helvetica Bold.ttf' # Helvetica Bold
         ]
         
-        for font_path in font_paths:
+        for font_path in system_font_paths:
             if Path(font_path).exists():
                 return font_path
         
+        logging.warning("太字フォントが見つかりません。デフォルトフォント（Arial）を試します。")
         return 'Arial'  # フォールバック
     
-    def _apply_typewriter_effect(self, text_clip: TextClip, duration: float) -> Optional[TextClip]:
-        """タイプライター効果の適用"""
-        try:
-            # 実際のタイプライター効果は複雑なので、
-            # 現在は簡単なフェードイン効果で代用する
-            return text_clip.set_duration(duration).fadein(0.5)
-        except Exception as e:
-            logging.error(f"タイプライター効果エラー: {e}")
-            return text_clip.set_duration(duration)
-    
+    def _apply_typewriter_effect(self, text_clip: TextClip, duration: float) -> Optional[VideoClip]:
+        """
+        アニメーション効果（現在は無効化され、静的クリップを返す）
+        """
+        # 安定した状態に戻すため、アニメーションを無効化
+        return text_clip.set_duration(duration)
+
+    def _create_reveal_mask_frame(self, t: float, width: int, height: int, duration: float) -> np.ndarray:
+        """リヴィール効果のためのマスクフレームを生成する"""
+        revealed_width = width
+        if duration > 0:
+            revealed_width = int(width * (t / duration))
+        
+        # マスク用の黒い画像を作成 (0が透明)
+        mask_frame = np.zeros((height, width), dtype=np.uint8)
+        
+        # 表示する部分を白くする (255が不透明)
+        if revealed_width > 0:
+            mask_frame[:, :revealed_width] = 255
+            
+        return mask_frame
+
     def _apply_fade_in_effect(self, text_clip: TextClip, duration: float) -> Optional[VideoClip]:
-        """フェードイン効果の適用"""
-        try:
-            fade_time = min(self.fade_duration, duration / 3)
-            return text_clip.set_duration(duration).fadein(fade_time)
-        except Exception as e:
-            logging.error(f"フェードイン効果エラー: {e}")
-            return text_clip.set_duration(duration)
+        """フェードイン効果の適用（現在は無効化）"""
+        # 安定化のため、エフェクトを無効化し静的クリップを返す
+        return text_clip.set_duration(duration)
     
     def _create_page_specific_image_clip(self, image_path: str, duration: float, page_number: int) -> Optional[ImageClip]:
         """ページ番号に応じて画像クリップを作成"""
@@ -297,19 +319,41 @@ class VideoGenerator:
             img_clip = ImageClip(image_path, duration=duration)
             
             if page_number == 1:
-                # 1ページ目：下に小さく配置（0.5倍）
-                target_size = int(self.width * 0.5)
+                # 1ページ目：下に小さく配置（0.55倍）
+                target_size = int(self.width * 0.55)
                 img_clip = img_clip.resize((target_size, target_size))
-                # 下側に配置（下から20%の位置）
-                position = ('center', int(self.height * 0.8 - target_size / 2))
+                # 下側に配置（下のマージンが約15%になるように）
+                position = ('center', int(self.height * 0.7 - target_size / 2))
                 img_clip = img_clip.set_position(position)
             else:
-                # 2ページ目以降：上に横いっぱい（正方形維持）
-                target_size = int(self.width * 0.9)  # 横いっぱい（90%）
-                img_clip = img_clip.resize((target_size, target_size))
-                # 上側に配置（上から20%の位置）
-                position = ('center', int(self.height * 0.2))
-                img_clip = img_clip.set_position(position)
+                # 2ページ目以降：1300pxの正方形にリサイズ後、上下を900pxにクロップしてパン
+                
+                # 1300x1300pxの正方形にリサイズ
+                square_size = 1300
+                square_clip = img_clip.resize((square_size, square_size))
+
+                # 上下を均等にクロップして、高さを900pxにする
+                crop_height = 900
+                cropped_clip = square_clip.crop(
+                    y_center=square_clip.h / 2,
+                    height=crop_height
+                )
+
+                # y座標を画面上部10%の位置に固定
+                y_position = int(self.height * 0.1)
+
+                # 右から左にパンするアニメーション関数
+                def move_func(t):
+                    # 開始x座標（画像の右端が画面の右端に揃う）
+                    start_x = self.width - cropped_clip.w
+                    # 終了x座標（画像の左端が画面の左端に揃う）
+                    end_x = 0
+                    # 線形補間でx座標を計算
+                    current_x = start_x + (end_x - start_x) * (t / duration)
+                    return (current_x, y_position)
+                
+                # アニメーションを適用
+                img_clip = cropped_clip.set_position(move_func).set_duration(duration)
             
             return img_clip
             
@@ -323,7 +367,9 @@ class VideoGenerator:
         
         try:
             # テキスト設定の取得
-            font_size = page_data.get('font_size', self.default_font_size)
+            # font_size = page_data.get('font_size', self.default_font_size)
+            # 強制的にフォントサイズを48に設定
+            font_size = 48
             # 黒文字に変更（白背景のため）
             color = '#000000'
             animation_type = page_data.get('animation', 'fade_in')
@@ -336,7 +382,9 @@ class VideoGenerator:
                 font=self._get_font_path(),
                 method='caption',
                 size=(int(self.width * 0.9), None),  # 画面幅90%を使用
-                align='center'
+                align='center',
+                bg_color='transparent', # テスト完了のため透明に戻す
+                interline=20 # 行間を広げる
             )
             
             # ページ番号に応じてテキスト位置を調整
@@ -345,15 +393,17 @@ class VideoGenerator:
                 text_y_position = int(self.height * 0.15)  # 上から15%の位置
             else:
                 # 2ページ目以降：画像が上にあるので、テキストは下に配置
-                text_y_position = int(self.height * 0.75)  # 上から75%の位置
+                text_y_position = int(self.height * 0.65)  # 上から65%の位置
             
             text_clip = text_clip.set_position(('center', text_y_position))
-            
-            # アニメーション効果の適用
-            if animation_type == 'fade_in':
-                animated_clip = self._apply_fade_in_effect(text_clip, duration)
+
+            # ページ番号に応じてアニメーションを適用
+            if page_number > 1:
+                # 2ページ目以降はタイプライター風（リヴィール）
+                animated_clip = self._apply_typewriter_effect(text_clip, duration)
             else:
-                animated_clip = text_clip.set_duration(duration)
+                # 1ページ目はフェードイン
+                animated_clip = self._apply_fade_in_effect(text_clip, duration)
             
             if animated_clip:
                 clips.append(animated_clip)

@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
+from datetime import datetime
+import pytz
 
 # YouTube APIの関連ライブラリ
 try:
@@ -93,13 +95,16 @@ class YouTubeUploader:
             logging.error(f"YouTube認証エラー: {e}")
             return False
     
-    def upload_video(self, video_path: str, title: str, description: str = "") -> Optional[str]:
+    def upload_video(self, video_path: str, title: str, description: str = "", 
+                     schedule_datetime: Optional[str] = None, is_shorts: bool = True) -> Optional[str]:
         """
         動画をYouTubeにアップロード
         Args:
             video_path: アップロード対象の動画ファイルのパス
             title: 動画のタイトル
             description: 動画の説明文
+            schedule_datetime: スケジュール投稿日時 (ISO 8601形式: "2024-12-25T08:00:00Z")
+            is_shorts: YouTube Shortsとしてアップロードするか
         Returns:
             アップロード成功時は動画ID、失敗時はNone
         """
@@ -116,19 +121,37 @@ class YouTubeUploader:
             return None
         
         try:
+            # Shortsハッシュタグをタイトルまたは説明文に追加
+            if is_shorts:
+                if '#Shorts' not in title and '#Shorts' not in description:
+                    title = f"{title} #Shorts"
+                
+                # Shortsのデフォルトタグを追加
+                shorts_tags = ['shorts', 'ai', 'generated', 'vertical']
+            else:
+                shorts_tags = ['ai', 'generated']
+            
+            # スケジュール投稿の場合はプライバシーをprivateに設定
+            privacy_status = 'private' if schedule_datetime else self.default_privacy
+            
             # アップロード用のメタデータ
             body = {
                 'snippet': {
                     'title': title,
                     'description': description,
-                    'tags': ['shorts', 'ai', 'generated'],
+                    'tags': shorts_tags,
                     'categoryId': self.default_category
                 },
                 'status': {
-                    'privacyStatus': self.default_privacy,
+                    'privacyStatus': privacy_status,
                     'selfDeclaredMadeForKids': False
                 }
             }
+            
+            # スケジュール投稿日時を設定
+            if schedule_datetime:
+                body['status']['publishAt'] = schedule_datetime
+                logging.info(f"スケジュール投稿設定: {schedule_datetime}")
             
             # ファイルアップロード設定
             media = MediaFileUpload(
@@ -138,7 +161,9 @@ class YouTubeUploader:
                 mimetype='video/mp4'
             )
             
-            logging.info(f"動画アップロード開始: {title}")
+            upload_type = "スケジュール投稿" if schedule_datetime else "即座投稿"
+            shorts_type = "YouTube Shorts" if is_shorts else "通常動画"
+            logging.info(f"{shorts_type} {upload_type}開始: {title}")
             
             # アップロードリクエスト実行
             insert_request = self.youtube_service.videos().insert(
@@ -175,6 +200,8 @@ class YouTubeUploader:
         while response is None:
             try:
                 status, response = insert_request.next_chunk()
+                if status:
+                    logging.info(f"アップロード進捗: {int(status.progress() * 100)}%")
                 if response is not None:
                     if 'id' in response:
                         logging.info(f"アップロード成功: ID={response['id']}")
@@ -253,3 +280,77 @@ class YouTubeUploader:
             logging.info("Google Cloud Consoleから取得した適切な値に置き換えてください")
         else:
             logging.info(f"クライアント情報は既に存在します: {self.credentials_file}")
+    
+    def parse_schedule_datetime(self, schedule_str: str) -> Optional[str]:
+        """
+        スケジュール投稿日時を解析してISO 8601形式に変換
+        Args:
+            schedule_str: 日時文字列 (例: "2024-12-25 08:00", "2024-12-25T08:00:00+09:00")
+        Returns:
+            ISO 8601形式の日時文字列、または無効な場合はNone
+        """
+        if not schedule_str:
+            return None
+            
+        try:
+            # 既にISO 8601形式の場合
+            if 'T' in schedule_str and ('+' in schedule_str or 'Z' in schedule_str):
+                # バリデーション
+                datetime.fromisoformat(schedule_str.replace('Z', '+00:00'))
+                return schedule_str
+            
+            # 簡単な形式をパース (例: "2024-12-25 08:00")
+            if len(schedule_str.split()) == 2:
+                date_part, time_part = schedule_str.split()
+                # 日本時間と仮定してUTCに変換
+                jst = pytz.timezone('Asia/Tokyo')
+                dt_str = f"{date_part} {time_part}"
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+                dt_jst = jst.localize(dt)
+                dt_utc = dt_jst.astimezone(pytz.UTC)
+                return dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            
+            # その他の形式をパース
+            dt = datetime.fromisoformat(schedule_str)
+            if dt.tzinfo is None:
+                # タイムゾーン情報がない場合は日本時間と仮定
+                jst = pytz.timezone('Asia/Tokyo')
+                dt_jst = jst.localize(dt)
+                dt_utc = dt_jst.astimezone(pytz.UTC)
+                return dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            else:
+                # タイムゾーン情報がある場合はUTCに変換
+                dt_utc = dt.astimezone(pytz.UTC)
+                return dt_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                
+        except Exception as e:
+            logging.error(f"日時パースエラー '{schedule_str}': {e}")
+            logging.error("使用可能な形式: '2024-12-25 08:00' または '2024-12-25T08:00:00+09:00'")
+            return None
+    
+    def validate_schedule_datetime(self, schedule_str: str) -> bool:
+        """
+        スケジュール投稿日時が有効かチェック
+        Args:
+            schedule_str: ISO 8601形式の日時文字列
+        Returns:
+            有効な場合True
+        """
+        if not schedule_str:
+            return False
+            
+        try:
+            # 日時をパース
+            dt = datetime.fromisoformat(schedule_str.replace('Z', '+00:00'))
+            
+            # 現在時刻と比較（未来の日時であることを確認）
+            now_utc = datetime.now(pytz.UTC)
+            if dt <= now_utc:
+                logging.warning(f"スケジュール日時が過去または現在です: {schedule_str}")
+                logging.warning("過去の日時の場合、動画は即座に公開されます")
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"日時バリデーションエラー: {e}")
+            return False

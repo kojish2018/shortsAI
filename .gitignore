@@ -78,3 +78,6 @@ temp-*
 *.bak
 
 .claude/
+.mcp.json
+.msg-prompts/
+.serena/
