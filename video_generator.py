@@ -367,25 +367,10 @@ class VideoGenerator:
         
         try:
             # テキスト設定の取得
-            # font_size = page_data.get('font_size', self.default_font_size)
-            # 強制的にフォントサイズを48に設定
             font_size = 48
-            # 黒文字に変更（白背景のため）
             color = '#000000'
             animation_type = page_data.get('animation', 'fade_in')
             page_number = page_data.get('page_number', 1)
-            
-            text_clip = TextClip(
-                text,
-                fontsize=font_size,
-                color=color,
-                font=self._get_font_path(),
-                method='caption',
-                size=(int(self.width * 0.9), None),  # 画面幅90%を使用
-                align='center',
-                bg_color='transparent', # テスト完了のため透明に戻す
-                interline=20 # 行間を広げる
-            )
             
             # ページ番号に応じてテキスト位置を調整
             if page_number == 1:
@@ -395,18 +380,32 @@ class VideoGenerator:
                 # 2ページ目以降：画像が上にあるので、テキストは下に配置
                 text_y_position = int(self.height * 0.65)  # 上から65%の位置
             
-            text_clip = text_clip.set_position(('center', text_y_position))
-
-            # ページ番号に応じてアニメーションを適用
-            if page_number > 1:
-                # 2ページ目以降はタイプライター風（リヴィール）
-                animated_clip = self._apply_typewriter_effect(text_clip, duration)
+            # 1ページ目のみ=で囲まれたテキストをグレー背景で処理
+            if page_number == 1:
+                text_clips = self._create_text_clips_with_highlights(
+                    text, font_size, color, text_y_position, duration, animation_type
+                )
+                clips.extend(text_clips)
             else:
-                # 1ページ目はフェードイン
-                animated_clip = self._apply_fade_in_effect(text_clip, duration)
-            
-            if animated_clip:
-                clips.append(animated_clip)
+                # 2ページ目以降は通常処理
+                text_clip = TextClip(
+                    text,
+                    fontsize=font_size,
+                    color=color,
+                    font=self._get_font_path(),
+                    method='caption',
+                    size=(int(self.width * 0.9), None),
+                    align='center',
+                    bg_color='transparent',
+                    interline=20
+                )
+                
+                text_clip = text_clip.set_position(('center', text_y_position))
+                
+                # アニメーションを適用
+                animated_clip = self._apply_typewriter_effect(text_clip, duration)
+                if animated_clip:
+                    clips.append(animated_clip)
             
         except Exception as e:
             logging.error(f"位置付きテキストクリップ作成エラー: {e}")
@@ -455,3 +454,117 @@ class VideoGenerator:
             'color': self.default_color,
             'animation': 'fade_in'
         }
+    
+    def _create_text_clips_with_highlights(self, text: str, font_size: int, color: str, 
+                                         text_y_position: int, duration: float, animation_type: str) -> List[TextClip]:
+        """=で囲まれたテキストをグレー背景でハイライトしながらテキストクリップを作成"""
+        clips = []
+        
+        try:
+            import re
+            
+            # =で囲まれた部分があるかチェック
+            has_highlights = re.search(r'=([^=]+)=', text)
+            
+            if has_highlights:
+                # 複数行にまたがる=テキスト=を処理するため、まずは全体を解析
+                parts = re.split(r'(=[^=]*=)', text)  # =テキスト=で分割し、区切り文字も保持
+                current_y = text_y_position
+                
+                for part in parts:
+                    if not part.strip():  # 空の部分はスキップ
+                        continue
+                        
+                    if re.match(r'^=.*=$', part, re.DOTALL):
+                        # =で囲まれた部分：グレー背景
+                        highlight_text = part[1:-1]  # =記号を除去
+                        highlight_clip = TextClip(
+                            highlight_text,
+                            fontsize=font_size,
+                            color=color,
+                            font=self._get_font_path(),
+                            method='caption',
+                            size=(int(self.width * 0.9), None),
+                            align='center',
+                            bg_color='#E0E0E0',  # グレー背景
+                            interline=100  # Page 1のハイライト部分は適度な行間
+                        )
+                        highlight_clip = highlight_clip.set_position(('center', current_y))
+                        
+                        # アニメーション適用
+                        if animation_type == 'fade_in':
+                            highlight_clip = self._apply_fade_in_effect(highlight_clip, duration)
+                        else:
+                            highlight_clip = highlight_clip.set_duration(duration)
+                        clips.append(highlight_clip)
+                        
+                        # テキストの行数を計算して位置を調整（interlineの値を反映）
+                        line_count = len(highlight_text.split('\n'))
+                        current_y += (font_size + 100) * line_count
+                    else:
+                        # 通常のテキスト部分
+                        if part.strip():  # 空でない場合のみ処理
+                            normal_clip = TextClip(
+                                part,
+                                fontsize=font_size,
+                                color=color,
+                                font=self._get_font_path(),
+                                method='caption',
+                                size=(int(self.width * 0.9), None),
+                                align='center',
+                                bg_color='transparent',
+                                interline=20
+                            )
+                            normal_clip = normal_clip.set_position(('center', current_y))
+                            
+                            # アニメーション適用
+                            if animation_type == 'fade_in':
+                                normal_clip = self._apply_fade_in_effect(normal_clip, duration)
+                            else:
+                                normal_clip = normal_clip.set_duration(duration)
+                            clips.append(normal_clip)
+                            
+                            # テキストの行数を計算して位置を調整
+                            line_count = len(part.split('\n'))
+                            current_y += (font_size + 50) * line_count
+            
+            else:
+                # 強調部分がない場合は通常処理
+                normal_clip = TextClip(
+                    text,
+                    fontsize=font_size,
+                    color=color,
+                    font=self._get_font_path(),
+                    method='caption',
+                    size=(int(self.width * 0.9), None),
+                    align='center',
+                    bg_color='transparent',
+                    interline=20
+                )
+                normal_clip = normal_clip.set_position(('center', text_y_position))
+                
+                # アニメーション適用
+                if animation_type == 'fade_in':
+                    normal_clip = self._apply_fade_in_effect(normal_clip, duration)
+                else:
+                    normal_clip = normal_clip.set_duration(duration)
+                clips.append(normal_clip)
+            
+        except Exception as e:
+            logging.error(f"ハイライト付きテキストクリップ作成エラー: {e}")
+            # エラー時はフォールバック処理
+            fallback_clip = TextClip(
+                text,
+                fontsize=font_size,
+                color=color,
+                font=self._get_font_path(),
+                method='caption',
+                size=(int(self.width * 0.9), None),
+                align='center',
+                bg_color='transparent',
+                interline=20
+            )
+            fallback_clip = fallback_clip.set_position(('center', text_y_position)).set_duration(duration)
+            clips.append(fallback_clip)
+        
+        return clips
