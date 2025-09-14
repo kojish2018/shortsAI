@@ -387,25 +387,11 @@ class VideoGenerator:
                 )
                 clips.extend(text_clips)
             else:
-                # 2ページ目以降は通常処理
-                text_clip = TextClip(
-                    text,
-                    fontsize=font_size,
-                    color=color,
-                    font=self._get_font_path(),
-                    method='caption',
-                    size=(int(self.width * 0.9), None),
-                    align='center',
-                    bg_color='transparent',
-                    interline=20
+                # 2ページ目以降も##記号のテキストを赤色で処理
+                text_clips = self._parse_and_create_colored_text(
+                    text, font_size, color, '#FF0000', text_y_position, duration, animation_type
                 )
-                
-                text_clip = text_clip.set_position(('center', text_y_position))
-                
-                # アニメーションを適用
-                animated_clip = self._apply_typewriter_effect(text_clip, duration)
-                if animated_clip:
-                    clips.append(animated_clip)
+                clips.extend(text_clips)
             
         except Exception as e:
             logging.error(f"位置付きテキストクリップ作成エラー: {e}")
@@ -424,6 +410,122 @@ class VideoGenerator:
                 pass  # それでも失敗する場合はスキップ
         
         return clips
+    
+    def _parse_and_create_colored_text(self, text: str, font_size: int, normal_color: str, 
+                                     highlight_color: str, text_y_position: int, duration: float, 
+                                     animation_type: str) -> List[TextClip]:
+        """##で囲まれたテキストを赤色で表示するテキストクリップを作成（超シンプル版）"""
+        clips = []
+        
+        try:
+            import re
+            
+            # ##で囲まれた部分があるかチェック
+            if '##' not in text:
+                # ##がない場合は通常のテキストクリップを作成
+                normal_clip = TextClip(
+                    text,
+                    fontsize=font_size,
+                    color=normal_color,
+                    font=self._get_font_path(),
+                    method='caption',
+                    size=(int(self.width * 0.9), None),
+                    align='center',
+                    bg_color='transparent',
+                    interline=40 if font_size == 60 else 20
+                )
+                normal_clip = normal_clip.set_position(('center', text_y_position))
+                
+                if animation_type == 'fade_in':
+                    normal_clip = self._apply_fade_in_effect(normal_clip, duration)
+                else:
+                    normal_clip = normal_clip.set_duration(duration)
+                
+                clips.append(normal_clip)
+                return clips
+            
+            # 超シンプル方式：##部分を空白に置き換えて通常色で表示
+            normal_text = re.sub(r'##([^#]*)##', lambda m: ' ' * len(m.group(1)), text)
+            normal_clip = TextClip(
+                normal_text,
+                fontsize=font_size,
+                color=normal_color,
+                font=self._get_font_path(),
+                method='caption',
+                size=(int(self.width * 0.9), None),
+                align='center',
+                bg_color='transparent',
+                interline=40 if font_size == 60 else 20
+            )
+            normal_clip = normal_clip.set_position(('center', text_y_position))
+            
+            if animation_type == 'fade_in':
+                normal_clip = self._apply_fade_in_effect(normal_clip, duration)
+            else:
+                normal_clip = normal_clip.set_duration(duration)
+            clips.append(normal_clip)
+            
+            # ##部分だけを赤色で表示（超シンプル方式）
+            red_matches = list(re.finditer(r'##([^#]*)##', text))
+            if red_matches:
+                # 元のテキストをベースに、##部分以外を空白にした赤テキストを作成
+                red_text = list(text)  # 文字配列に変換
+                
+                # まず全ての文字を空白に
+                for i, char in enumerate(red_text):
+                    if char != '\n':  # 改行は保持
+                        red_text[i] = ' '
+                
+                # ##で囲まれた部分だけを元の文字に戻す
+                for match in red_matches:
+                    start = match.start() + 2  # ##の後から
+                    content = match.group(1)   # ##内の文字
+                    
+                    for i, char in enumerate(content):
+                        if start + i < len(red_text):
+                            red_text[start + i] = char
+                
+                red_text_str = ''.join(red_text)
+                
+                if red_text_str.strip():
+                    red_clip = TextClip(
+                        red_text_str,
+                        fontsize=font_size,
+                        color=highlight_color,
+                        font=self._get_font_path(),
+                        method='caption',
+                        size=(int(self.width * 0.9), None),
+                        align='center',
+                        bg_color='transparent',
+                        interline=40 if font_size == 60 else 20
+                    )
+                    red_clip = red_clip.set_position(('center', text_y_position))
+                    
+                    if animation_type == 'fade_in':
+                        red_clip = self._apply_fade_in_effect(red_clip, duration)
+                    else:
+                        red_clip = red_clip.set_duration(duration)
+                    clips.append(red_clip)
+            
+        except Exception as e:
+            logging.error(f"カラーテキスト解析エラー: {e}")
+            # エラー時は##を除去した通常のテキストクリップを作成
+            fallback_clip = TextClip(
+                text.replace('##', ''),
+                fontsize=font_size,
+                color=normal_color,
+                font=self._get_font_path(),
+                method='caption',
+                size=(int(self.width * 0.9), None),
+                align='center',
+                bg_color='transparent',
+                interline=40 if font_size == 60 else 20
+            )
+            fallback_clip = fallback_clip.set_position(('center', text_y_position)).set_duration(duration)
+            clips.append(fallback_clip)
+        
+        return clips
+    
     
     def _create_placeholder_video(self, output_path: str) -> bool:
         """プレースホルダー動画を作成（MoviePy不使用時）"""
@@ -457,98 +559,16 @@ class VideoGenerator:
     
     def _create_text_clips_with_highlights(self, text: str, font_size: int, color: str, 
                                          text_y_position: int, duration: float, animation_type: str) -> List[TextClip]:
-        """=で囲まれたテキストをグレー背景でハイライトしながらテキストクリップを作成"""
+        """=で囲まれたテキストをハイライトせず、##で囲まれたテキストを赤色で表示するテキストクリップを作成"""
         clips = []
         
         try:
-            import re
-            
-            # =で囲まれた部分があるかチェック
-            has_highlights = re.search(r'=([^=]+)=', text)
-            
-            if has_highlights:
-                # 複数行にまたがる=テキスト=を処理するため、まずは全体を解析
-                parts = re.split(r'(=[^=]*=)', text)  # =テキスト=で分割し、区切り文字も保持
-                current_y = text_y_position
-                
-                for part in parts:
-                    if not part.strip():  # 空の部分はスキップ
-                        continue
-                        
-                    if re.match(r'^=.*=$', part, re.DOTALL):
-                        # =で囲まれた部分：グレー背景
-                        highlight_text = part[1:-1]  # =記号を除去
-                        highlight_clip = TextClip(
-                            highlight_text,
-                            fontsize=font_size,
-                            color=color,
-                            font=self._get_font_path(),
-                            method='caption',
-                            size=(int(self.width * 0.9), None),
-                            align='center',
-                            bg_color='#E0E0E0',  # グレー背景
-                            interline=100  # Page 1のハイライト部分は適度な行間
-                        )
-                        highlight_clip = highlight_clip.set_position(('center', current_y))
-                        
-                        # アニメーション適用
-                        if animation_type == 'fade_in':
-                            highlight_clip = self._apply_fade_in_effect(highlight_clip, duration)
-                        else:
-                            highlight_clip = highlight_clip.set_duration(duration)
-                        clips.append(highlight_clip)
-                        
-                        # テキストの行数を計算して位置を調整（interlineの値を反映）
-                        line_count = len(highlight_text.split('\n'))
-                        current_y += (font_size + 100) * line_count
-                    else:
-                        # 通常のテキスト部分
-                        if part.strip():  # 空でない場合のみ処理
-                            normal_clip = TextClip(
-                                part,
-                                fontsize=font_size,
-                                color=color,
-                                font=self._get_font_path(),
-                                method='caption',
-                                size=(int(self.width * 0.9), None),
-                                align='center',
-                                bg_color='transparent',
-                                interline=20
-                            )
-                            normal_clip = normal_clip.set_position(('center', current_y))
-                            
-                            # アニメーション適用
-                            if animation_type == 'fade_in':
-                                normal_clip = self._apply_fade_in_effect(normal_clip, duration)
-                            else:
-                                normal_clip = normal_clip.set_duration(duration)
-                            clips.append(normal_clip)
-                            
-                            # テキストの行数を計算して位置を調整
-                            line_count = len(part.split('\n'))
-                            current_y += (font_size + 50) * line_count
-            
-            else:
-                # 強調部分がない場合は通常処理
-                normal_clip = TextClip(
-                    text,
-                    fontsize=font_size,
-                    color=color,
-                    font=self._get_font_path(),
-                    method='caption',
-                    size=(int(self.width * 0.9), None),
-                    align='center',
-                    bg_color='transparent',
-                    interline=20
-                )
-                normal_clip = normal_clip.set_position(('center', text_y_position))
-                
-                # アニメーション適用
-                if animation_type == 'fade_in':
-                    normal_clip = self._apply_fade_in_effect(normal_clip, duration)
-                else:
-                    normal_clip = normal_clip.set_duration(duration)
-                clips.append(normal_clip)
+            # =記号を単純に除去して##記号のテキストを処理
+            processed_text = text.replace('=', '')
+            text_clips = self._parse_and_create_colored_text(
+                processed_text, 60, color, '#FF0000', text_y_position, duration, animation_type
+            )
+            clips.extend(text_clips)
             
         except Exception as e:
             logging.error(f"ハイライト付きテキストクリップ作成エラー: {e}")
