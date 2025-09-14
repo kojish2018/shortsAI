@@ -27,9 +27,13 @@ class VoiceSynthesizer:
         self.host = self.config.get('host', '127.0.0.1')
         self.port = self.config.get('port', 50021)
         self.speaker_id = self.config.get('speaker_id', 3)  # ずんだもん（ノーマル）
+        self.speed_scale = self.config.get('speed_scale', 1.0)  # 朗読スピード
+        self.pitch_scale = self.config.get('pitch_scale', 1.0)  # 音程調整
+        self.volume_scale = self.config.get('volume_scale', 1.0)  # 音量調整
+        self.intonation_scale = self.config.get('intonation_scale', 1.0)  # 抑揚調整
         self.base_url = f"http://{self.host}:{self.port}"
         
-        logging.info(f"音声合成器 - VOICEVOX: {self.base_url}, Speaker ID: {self.speaker_id}")
+        logging.info(f"音声合成器 - VOICEVOX: {self.base_url}, Speaker ID: {self.speaker_id}, Speed: {self.speed_scale}x, Pitch: {self.pitch_scale}x, Volume: {self.volume_scale}x, Intonation: {self.intonation_scale}x")
         
         # VOICEVOX接続テスト
         if not self._check_connection():
@@ -97,7 +101,26 @@ class VoiceSynthesizer:
             response = requests.post(url, params=params, timeout=10)
             response.raise_for_status()
             
-            return response.json()
+            audio_query = response.json()
+            
+            # 音声パラメータの調整を適用
+            if self.speed_scale != 1.0:
+                audio_query["speedScale"] = self.speed_scale
+                logging.debug(f"音声スピードを{self.speed_scale}倍に設定")
+            
+            if self.pitch_scale != 1.0:
+                audio_query["pitchScale"] = self.pitch_scale
+                logging.debug(f"音程を{self.pitch_scale}倍に設定")
+                
+            if self.volume_scale != 1.0:
+                audio_query["volumeScale"] = self.volume_scale
+                logging.debug(f"音量を{self.volume_scale}倍に設定")
+                
+            if self.intonation_scale != 1.0:
+                audio_query["intonationScale"] = self.intonation_scale
+                logging.debug(f"抑揚を{self.intonation_scale}倍に設定")
+            
+            return audio_query
             
         except requests.exceptions.RequestException as e:
             logging.error(f"音声クエリ作成エラー: {e}")
@@ -206,4 +229,7 @@ class VoiceSynthesizer:
         # 1秒から10秒の範囲に制限
         total_duration = max(1.0, min(base_duration + pause_duration, 10.0))
         
-        return total_duration
+        # スピード調整を適用（速度が速いほど短くなる）
+        adjusted_duration = total_duration / self.speed_scale
+        
+        return adjusted_duration

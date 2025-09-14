@@ -13,7 +13,7 @@ import numpy as np
 try:
     from moviepy.editor import (
         VideoFileClip, ImageClip, AudioFileClip, TextClip, 
-        CompositeVideoClip, CompositeAudioClip, concatenate_videoclips,
+        CompositeVideoClip, CompositeAudioClip, concatenate_videoclips, concatenate_audioclips,
         VideoClip, ImageSequenceClip
     )
     MOVIEPY_AVAILABLE = True
@@ -43,6 +43,7 @@ class VideoGenerator:
         self.video_config = config.get('video', {})
         self.text_config = config.get('text', {})
         self.animation_config = config.get('animation', {})
+        self.bgm_config = config.get('bgm', {})
         
         # 動画設定
         self.width = self.video_config.get('width', 1080)
@@ -105,9 +106,9 @@ class VideoGenerator:
             # 全体のクリップを合成
             final_video = CompositeVideoClip(video_clips, size=(self.width, self.height))
             
-            # 音声の合成
+            # 音声の合成（BGM含む）
             if audio_clips:
-                final_audio = CompositeAudioClip(audio_clips)
+                final_audio = self._create_final_audio_with_bgm(audio_clips, current_time)
                 final_video = final_video.set_audio(final_audio)
             
             # 出力ディレクトリの作成
@@ -525,6 +526,50 @@ class VideoGenerator:
             clips.append(fallback_clip)
         
         return clips
+    
+    def _create_final_audio_with_bgm(self, audio_clips: List[AudioFileClip], total_duration: float) -> CompositeAudioClip:
+        """ナレーションとBGMをミックスした最終音声を作成"""
+        try:
+            # ナレーション音声の合成
+            narration_audio = CompositeAudioClip(audio_clips)
+            final_clips = [narration_audio]
+            
+            # BGM設定の取得
+            bgm_path = self.bgm_config.get('file_path', 'music/motivation-music3.mp3')
+            bgm_volume = self.bgm_config.get('volume', 0.3)  # ナレーションより小さく
+            
+            # BGMファイルの存在確認
+            if Path(bgm_path).exists():
+                try:
+                    # BGMを読み込み
+                    bgm_audio = AudioFileClip(bgm_path)
+                    
+                    # 動画の長さに合わせてBGMをトリミング
+                    if bgm_audio.duration > total_duration:
+                        bgm_audio = bgm_audio.subclip(0, total_duration)
+                    elif bgm_audio.duration < total_duration:
+                        # BGMが短い場合はループ
+                        loops_needed = int(total_duration / bgm_audio.duration) + 1
+                        bgm_loops = [bgm_audio] * loops_needed
+                        bgm_audio = concatenate_audioclips(bgm_loops).subclip(0, total_duration)
+                    
+                    # BGM音量を調整
+                    bgm_audio = bgm_audio.volumex(bgm_volume)
+                    
+                    final_clips.append(bgm_audio)
+                    logging.info(f"BGMを追加しました: {bgm_path} (音量: {bgm_volume})")
+                    
+                except Exception as e:
+                    logging.warning(f"BGM処理エラー: {e}。BGMなしで続行します。")
+            else:
+                logging.warning(f"BGMファイルが見つかりません: {bgm_path}")
+            
+            return CompositeAudioClip(final_clips)
+            
+        except Exception as e:
+            logging.error(f"音声ミックスエラー: {e}")
+            # エラー時はナレーションのみ返す
+            return CompositeAudioClip(audio_clips)
     
     
     def _create_placeholder_video(self, output_path: str) -> bool:
