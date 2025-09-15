@@ -92,9 +92,12 @@ class VideoGenerator:
                 if page_clip:
                     video_clips.append(page_clip)
                 
-                # 音声クリップの追加
+                # 音声クリップの追加（音圧アップ適用）
                 if 'audio_path' in page_data and Path(page_data['audio_path']).exists():
                     audio_clip = AudioFileClip(page_data['audio_path']).set_start(current_time)
+                    # ナレーション音圧アップ
+                    narration_boost = self.bgm_config.get('narration_boost', 1.3)
+                    audio_clip = audio_clip.volumex(narration_boost)
                     audio_clips.append(audio_clip)
                 
                 current_time += page_data.get('duration', 3.0)
@@ -544,6 +547,10 @@ class VideoGenerator:
                     # BGMを読み込み
                     bgm_audio = AudioFileClip(bgm_path)
                     
+                    # 最初の3秒をカット（無音部分の除去）
+                    if bgm_audio.duration > 3:
+                        bgm_audio = bgm_audio.subclip(3)
+                    
                     # 動画の長さに合わせてBGMをトリミング
                     if bgm_audio.duration > total_duration:
                         bgm_audio = bgm_audio.subclip(0, total_duration)
@@ -553,8 +560,9 @@ class VideoGenerator:
                         bgm_loops = [bgm_audio] * loops_needed
                         bgm_audio = concatenate_audioclips(bgm_loops).subclip(0, total_duration)
                     
-                    # BGM音量を調整
-                    bgm_audio = bgm_audio.volumex(bgm_volume)
+                    # BGM音量と音圧を調整
+                    bgm_boost = self.bgm_config.get('bgm_boost', 1.2)
+                    bgm_audio = bgm_audio.volumex(bgm_volume * bgm_boost)
                     
                     final_clips.append(bgm_audio)
                     logging.info(f"BGMを追加しました: {bgm_path} (音量: {bgm_volume})")

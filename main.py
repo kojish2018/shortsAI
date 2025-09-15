@@ -69,6 +69,37 @@ def parse_simple_script(script_path: str) -> List[str]:
         logging.error(f"スクリプト読み込みエラー: {e}")
         sys.exit(1)
 
+def generate_title_from_first_page(first_page_text: str) -> str:
+    """
+    1ページ目のテキストからYouTubeタイトルを生成
+    Args:
+        first_page_text: 1ページ目のテキスト
+    Returns:
+        タイトル用に整形された文字列
+    """
+    if not first_page_text:
+        return "AI Generated Video"
+    
+    # =text= のような特殊記法と##を除去
+    cleaned_text = first_page_text.replace('=', '').replace('##', '')
+    
+    # 改行をスペースに置換
+    cleaned_text = ' '.join(cleaned_text.split())
+    
+    # 先頭・末尾の空白を除去
+    cleaned_text = cleaned_text.strip()
+    
+    # YouTubeタイトルの最大長（100文字）を考慮して切り詰め
+    max_length = 90  # 余裕をもたせる
+    if len(cleaned_text) > max_length:
+        cleaned_text = cleaned_text[:max_length].rstrip()
+        # 単語の途中で切れることを避ける
+        if ' ' in cleaned_text:
+            cleaned_text = cleaned_text.rsplit(' ', 1)[0]
+    
+    return cleaned_text if cleaned_text else "AI Generated Video"
+
+
 def translate_text(text: str, api_key: str) -> str:
     """DeepL APIを使ってテキストを英語に翻訳する"""
     if not api_key:
@@ -208,15 +239,14 @@ def main():
 
             # 4. YouTube アップロード（オプション）
             if youtube_uploader and video_path.exists():
-                script_title = Path(args.script).stem
+                # 1ページ目のテキストからタイトルを生成
+                title = generate_title_from_first_page(pages[0])
                 
-                # Shortsか通常動画かでタイトルを変更
+                # Shortsか通常動画かで説明文を変更
                 is_shorts = not args.no_shorts  # --no-shortsフラグがない場合はShorts
                 if is_shorts:
-                    title = f"AI Generated Short: {script_title}"
                     description = f"AI生成ショート動画 ({len(pages)}ページ, {total_duration:.1f}秒)\n\n自動生成されたYouTube Shorts動画です。"
                 else:
-                    title = f"AI Generated Video: {script_title}"
                     description = f"AI生成動画 ({len(pages)}ページ, {total_duration:.1f}秒)\n\n自動生成された動画です。"
                 
                 # スケジュール投稿日時の処理
